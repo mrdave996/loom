@@ -7,6 +7,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 use Symfony\Component\Yaml\Yaml;
 use Loom\Importer;
+use Loom\Scraper;
 
 $rootDir = __DIR__;
 $errors = [];
@@ -211,10 +212,37 @@ switch ($command) {
 		$result = $importer->migrate($source, $format);
 		exit(empty($result['errors']) ? 0 : 1);
 
+	case 'scrape':
+		$configFile = $argv[2] ?? null;
+		if (empty($configFile)) {
+			echo "Usage: php loom scrape <config-file>\n";
+			echo "\nArguments:\n";
+			echo "  config-file   Path to site config PHP file\n";
+			echo "\nExample:\n";
+			echo "  php loom scrape scrape/sites/example.com.php\n";
+			exit(1);
+		}
+
+		if (!file_exists($configFile)) {
+			echo "Error: Config file not found: {$configFile}\n";
+			exit(1);
+		}
+
+		$config = require $configFile;
+		if (!is_array($config)) {
+			echo "Error: Config file must return an array\n";
+			exit(1);
+		}
+
+		$scraper = new Scraper($rootDir, $config);
+		$result = $scraper->scrape();
+		exit(empty($result['errors']) ? 0 : 1);
+
 	default:
 		echo "Usage: php loom <command>\n";
 		echo "\nCommands:\n";
 		echo "  verify   Check content, templates, and source for errors\n";
 		echo "  import   Import a WordPress site from XML or SQL export\n";
+		echo "  scrape   Scrape a mirrored site into Loom content\n";
 		exit(1);
 }
