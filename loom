@@ -182,11 +182,11 @@ switch ($command) {
 	case 'import':
 		$source = $argv[2] ?? null;
 		if (empty($source)) {
-			echo "Usage: php loom import <source> [--format=xml|sql] [--output=dir]\n";
+			echo "Usage: php loom import <source> [--format=xml|sql|html] [--output=dir]\n";
 			echo "\nArguments:\n";
-			echo "  source   Path to WordPress export (.xml or .sql)\n";
+			echo "  source   Path to WordPress export (.xml, .sql) or static HTML directory\n";
 			echo "\nOptions:\n";
-			echo "  --format   Force format: xml or sql (default: auto-detect)\n";
+			echo "  --format   Force format: xml, sql, or html (default: auto-detect)\n";
 			echo "  --output   Output directory (default: current directory)\n";
 			exit(1);
 		}
@@ -242,7 +242,7 @@ switch ($command) {
 		echo "Usage: php loom <command>\n";
 		echo "\nCommands:\n";
 		echo "  verify   Check content, templates, and source for errors\n";
-		echo "  import   Import a WordPress site from XML or SQL export\n";
+		echo "  import   Import a site from WordPress export (XML/SQL) or static HTML directory\n";
 		echo "  scrape   Scrape a mirrored site into Loom content\n";
 		exit(1);
 }

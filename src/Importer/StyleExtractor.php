@@ -91,6 +91,30 @@ class StyleExtractor
 	}
 
 	/**
+	 * Write pre-extracted CSS directly to the output stylesheet.
+	 *
+	 * Used when CSS has already been extracted from HTML (e.g., by HtmlCssExtractor).
+	 * Skips all WordPress theme extraction logic (theme.json, theme directory, scraping).
+	 */
+	public function writeRaw(string $css): string
+	{
+		$destDir = $this->outputDir . '/public/assets/css';
+		if (!is_dir($destDir)) {
+			mkdir($destDir, 0755, true);
+		}
+
+		// Clean up the CSS
+		$css = $this->cleanCss($css);
+
+		// Merge duplicate :root blocks
+		$css = $this->mergeRootBlocks($css);
+
+		file_put_contents($destDir . '/style.css', $css);
+
+		return $destDir . '/style.css';
+	}
+
+	/**
 	 * Build a Google Fonts @import URL from theme font families.
 	 */
 	private function buildFontImport(array $globalStyles): string

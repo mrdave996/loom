@@ -7,6 +7,7 @@ namespace Loom;
 use Loom\Importer\ContentParser;
 use Loom\Importer\WpXmlParser;
 use Loom\Importer\WpSqlParser;
+use Loom\Importer\HtmlParser;
 use Loom\Importer\MediaMigrator;
 use Loom\Importer\StyleExtractor;
 use Loom\Importer\NavigationBuilder;
@@ -68,13 +69,28 @@ class Importer
 		echo "\nStep 2: Migrating media...\n";
 		$this->siteTitle = $data['options']['site_title'] ?? '';
 		$siteUrl = $data['options']['site_url'] ?? '';
-		$mediaResult = $this->mediaMigrator->migrate($data['media'], $siteUrl);
-		$urlMap = $mediaResult['url_map'];
-		$altLookup = $mediaResult['alt_lookup'];
-		echo "  " . count($urlMap) . " files migrated, " . count($mediaResult['errors']) . " errors\n";
+
+		// Detect if media items are local files (HTML import)
+		$hasLocalMedia = !empty($data['media']) && !empty($data['media'][0]['local_path'] ?? '');
+
+		if ($hasLocalMedia) {
+			$mediaResult = $this->mediaMigrator->migrateLocal($data['media'], $source);
+			$urlMap = $mediaResult['url_map'];
+			$altLookup = $mediaResult['alt_lookup'];
+			echo "  " . count($urlMap) . " files copied, " . count($mediaResult['errors']) . " errors\n";
+		} else {
+			$mediaResult = $this->mediaMigrator->migrate($data['media'], $siteUrl);
+			$urlMap = $mediaResult['url_map'];
+			$altLookup = $mediaResult['alt_lookup'];
+			echo "  " . count($urlMap) . " files migrated, " . count($mediaResult['errors']) . " errors\n";
+		}
 
 		// Detect and download favicons
-		$this->faviconPath = $this->extractFavicons($data['media'], $urlMap, $siteUrl);
+		if ($hasLocalMedia) {
+			$this->faviconPath = $this->extractLocalFavicon($data['media'], $urlMap, $source);
+		} else {
+			$this->faviconPath = $this->extractFavicons($data['media'], $urlMap, $siteUrl);
+		}
 		if ($this->faviconPath) {
 			echo "  ✓ Favicon: {$this->faviconPath}\n";
 		}
@@ -88,10 +104,18 @@ class Importer
 
 		// Step 3: Extract styles
 		echo "\nStep 3: Extracting styles...\n";
-		$themeDir = $this->findThemeDir($source);
 		$themeData = $data['theme'] ?? [];
-		$this->styleExtractor->extract($themeDir, $siteUrl, $themeData);
-		echo "  ✓ CSS written to public/assets/css/style.css\n";
+
+		if (!empty($themeData['css'])) {
+			// Pre-extracted CSS from HTML import
+			$this->styleExtractor->writeRaw($themeData['css']);
+			echo "  ✓ CSS extracted from HTML source\n";
+		} else {
+			// WordPress theme extraction
+			$themeDir = $this->findThemeDir($source);
+			$this->styleExtractor->extract($themeDir, $siteUrl, $themeData);
+			echo "  ✓ CSS written to public/assets/css/style.css\n";
+		}
 
 		// Step 4: Convert pages
 		echo "\nStep 4: Converting pages...\n";
@@ -100,8 +124,9 @@ class Importer
 		$frontPageSlug = $this->detectFrontPage($data['pages'], $siteUrl);
 
 		// Build navigation links for front matter
-		$navLinks = $this->navBuilder->build($data['menus'], $urlMap, $data['pages'], $frontPageSlug ?? '');
-		$footerLinks = $this->navBuilder->buildFooter($data['menus'], $urlMap, $data['pages'], $frontPageSlug ?? '');
+		// Use pre-resolved links from parser if available (HTML import), otherwise use NavigationBuilder
+		$navLinks = $data['options']['nav_links'] ?? $this->navBuilder->build($data['menus'], $urlMap, $data['pages'], $frontPageSlug ?? '');
+		$footerLinks = $data['options']['footer_links'] ?? $this->navBuilder->buildFooter($data['menus'], $urlMap, $data['pages'], $frontPageSlug ?? '');
 
 		foreach ($data['pages'] as $page) {
 			$isFrontPage = ($page['slug'] === $frontPageSlug);
@@ -175,33 +200,50 @@ class Importer
 			return new WpSqlParser();
 		}
 
-		// Try to detect from file content
-		$firstBytes = file_get_contents($source, false, null, 0, 100);
-		if (str_starts_with($firstBytes, '<?xml') || str_contains($firstBytes, '<rss')) {
-			return new WpXmlParser();
+		// HTML directory detection
+		if ($format === 'html' || ($format === 'auto' && is_dir($source))) {
+			if (file_exists($source . '/index.html') || !empty(glob($source . '/*.html'))) {
+				return new HtmlParser();
+			}
 		}
 
-		if (str_contains($firstBytes, 'INSERT INTO') || str_contains($firstBytes, 'CREATE TABLE')) {
-			return new WpSqlParser();
+		// Try to detect from file content (only for files, not directories)
+		if (!is_dir($source)) {
+			$firstBytes = file_get_contents($source, false, null, 0, 100);
+			if (str_starts_with($firstBytes, '<?xml') || str_contains($firstBytes, '<rss')) {
+				return new WpXmlParser();
+			}
+
+			if (str_contains($firstBytes, 'INSERT INTO') || str_contains($firstBytes, 'CREATE TABLE')) {
+				return new WpSqlParser();
+			}
 		}
 
-		throw new \RuntimeException("Cannot detect export format for: {$source}. Use --format=xml or --format=sql.");
+		throw new \RuntimeException("Cannot detect export format for: {$source}. Use --format=xml, --format=sql, or --format=html.");
 	}
 
 	/**
-	 * Detect which page is the WordPress front page.
+	 * Detect which page is the front page.
+	 *
+	 * WordPress: matches by siteUrl. Static HTML: matches by empty slug.
 	 */
 	private function detectFrontPage(array $pages, string $siteUrl): ?string
 	{
-		if (empty($siteUrl)) return null;
+		// First try matching by site URL (WordPress flow)
+		if (!empty($siteUrl)) {
+			$siteUrl = rtrim($siteUrl, '/');
+			foreach ($pages as $page) {
+				$link = rtrim($page['link'] ?? '', '/');
+				if ($link === $siteUrl || $link === '') {
+					return $page['slug'];
+				}
+			}
+		}
 
-		$siteUrl = rtrim($siteUrl, '/');
-
+		// Fallback: find the page with an empty slug (HTML import homepage)
 		foreach ($pages as $page) {
-			$link = rtrim($page['link'] ?? '', '/');
-			// Front page URL matches site root (e.g., https://example.com/)
-			if ($link === $siteUrl || $link === '') {
-				return $page['slug'];
+			if (($page['slug'] ?? '') === '') {
+				return '';
 			}
 		}
 
@@ -214,7 +256,9 @@ class Importer
 	private function convertItem(array $item, string $outputDir, string $type, bool $isFrontPage = false, array $navLinks = [], array $footerLinks = []): void
 	{
 		$slug = $item['slug'] ?? '';
-		if (empty($slug)) return;
+
+		// Front page with empty slug is valid (HTML import homepage)
+		if (empty($slug) && !$isFrontPage) return;
 
 		// Process shortcodes
 		$content = $this->shortcodeHandler->process($item['content'] ?? '');
@@ -282,6 +326,13 @@ class Importer
 			}
 		} else {
 			$filePath = $outputDir . '/' . $slug . '.md';
+
+			// Create parent directories for nested slugs (e.g., resources/google-ads)
+			$parentDir = dirname($filePath);
+			if (!is_dir($parentDir)) {
+				mkdir($parentDir, 0755, true);
+			}
+
 			file_put_contents($filePath, $fileContent);
 		}
 	}
@@ -400,6 +451,52 @@ class Importer
 		}
 
 		return '/assets/favicon.' . $ext;
+	}
+
+	/**
+	 * Extract favicon from local media assets.
+	 * Looks for favicon-like files in the URL map (already copied by MediaMigrator).
+	 */
+	private function extractLocalFavicon(array $media, array $urlMap, string $sourceDir): string
+	{
+		$faviconPatterns = ['favicon', 'apple-touch-icon', 'android-chrome', 'site-icon'];
+
+		// Search for favicon in the URL map (already migrated)
+		foreach ($urlMap as $oldUrl => $newUrl) {
+			$filename = strtolower(basename($oldUrl));
+			foreach ($faviconPatterns as $pattern) {
+				if (str_contains($filename, $pattern)) {
+					return $newUrl;
+				}
+			}
+		}
+
+		// Search for favicon files in the source directory
+		$candidates = [
+			'/favicon.ico',
+			'/favicon.svg',
+			'/favicon.png',
+			'/favicon-32x32.png',
+			'/assets/favicon.ico',
+			'/assets/img/favicon.svg',
+			'/assets/img/favicon.webp',
+		];
+
+		foreach ($candidates as $candidate) {
+			$path = $sourceDir . $candidate;
+			if (file_exists($path)) {
+				$destDir = $this->outputDir . '/public/assets';
+				if (!is_dir($destDir)) {
+					mkdir($destDir, 0755, true);
+				}
+				$ext = pathinfo($candidate, PATHINFO_EXTENSION);
+				$destPath = $destDir . '/favicon.' . $ext;
+				copy($path, $destPath);
+				return '/assets/favicon.' . $ext;
+			}
+		}
+
+		return '';
 	}
 
 	/**
@@ -536,14 +633,11 @@ class Importer
 	 */
 	private function cleanOutput(): void
 	{
-		$patterns = [
-			$this->outputDir . '/content/pages/*.md',
-			$this->outputDir . '/content/posts/*.md',
-		];
-
-		foreach ($patterns as $pattern) {
-			foreach (glob($pattern) ?: [] as $file) {
-				@unlink($file);
+		// Recursively remove .md files in content/ (handles nested slugs like resources/google-ads.md)
+		foreach (['pages', 'posts'] as $type) {
+			$dir = $this->outputDir . '/content/' . $type;
+			if (is_dir($dir)) {
+				$this->removeFilesRecursive($dir, '.md');
 			}
 		}
 
@@ -556,6 +650,30 @@ class Importer
 		$imagesDir = $this->outputDir . '/public/assets/images';
 		if (is_dir($imagesDir)) {
 			$this->removeDirectory($imagesDir);
+		}
+	}
+
+	/**
+	 * Recursively remove files matching an extension, then clean empty directories.
+	 */
+	private function removeFilesRecursive(string $dir, string $extension): void
+	{
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::CHILD_FIRST
+		);
+
+		foreach ($iterator as $file) {
+			if ($file->isFile() && $file->getExtension() === ltrim($extension, '.')) {
+				@unlink($file->getPathname());
+			}
+		}
+
+		// Remove empty subdirectories (but not the root dir)
+		foreach ($iterator as $file) {
+			if ($file->isDir() && $file->getPath() !== $dir) {
+				@rmdir($file->getPathname());
+			}
 		}
 	}
 

@@ -74,6 +74,114 @@ class MediaMigrator
 	}
 
 	/**
+	 * Migrate local media files from a source directory.
+	 *
+	 * Copies files instead of downloading from remote URLs.
+	 * Optionally converts images to WebP.
+	 *
+	 * @param array $media Media items from ContentParser with local_path field
+	 * @param string $sourceDir The source site root directory
+	 * @param bool $convertToWebp Whether to convert images to WebP (default: true)
+	 * @return array{url_map: array, alt_lookup: array, errors: array}
+	 */
+	public function migrateLocal(array $media, string $sourceDir, bool $convertToWebp = true): array
+	{
+		// Build alt text lookup
+		foreach ($media as $item) {
+			if (!empty($item['url']) && !empty($item['alt'])) {
+				$this->altLookup[$item['url']] = $item['alt'];
+			}
+		}
+
+		$total = count($media);
+		$done = 0;
+
+		foreach ($media as $item) {
+			$done++;
+			$url = $item['url'] ?? '';
+			$localPath = $item['local_path'] ?? '';
+			if (empty($url) || empty($localPath)) continue;
+
+			$mime = $item['mime_type'] ?? '';
+			$isImage = str_starts_with($mime, 'image/') || preg_match('/\.(jpe?g|png|gif|webp|avif)$/i', $url);
+			$isSvg = str_ends_with(strtolower($url), '.svg') || $mime === 'image/svg+xml';
+
+			try {
+				if ($convertToWebp && $isImage && !$isSvg) {
+					$this->migrateLocalImage($url, $localPath);
+				} else {
+					$this->migrateLocalFile($url, $localPath, $mime);
+				}
+				echo "  [{$done}/{$total}] ✓ {$url}\n";
+			} catch (\Throwable $e) {
+				$this->errors[] = "{$url}: " . $e->getMessage();
+				echo "  [{$done}/{$total}] ✗ {$url} — {$e->getMessage()}\n";
+			}
+		}
+
+		return [
+			'url_map' => $this->urlMap,
+			'alt_lookup' => $this->altLookup,
+			'errors' => $this->errors,
+		];
+	}
+
+	/**
+	 * Migrate a local image file, optionally converting to WebP.
+	 */
+	private function migrateLocalImage(string $url, string $localPath): void
+	{
+		$originalName = basename($localPath);
+		$webpName = pathinfo($originalName, PATHINFO_FILENAME) . '.webp';
+
+		$destDir = $this->outputDir . '/public/assets/images';
+		if (!is_dir($destDir)) {
+			mkdir($destDir, 0755, true);
+		}
+
+		$destPath = $destDir . '/' . $webpName;
+
+		// Decode and encode as WebP
+		$image = $this->imageManager->decodePath($localPath);
+		$image->encode(new WebpEncoder(quality: 78))->save($destPath);
+
+		$newUrl = '/assets/images/' . $webpName;
+		$this->urlMap[$url] = $newUrl;
+	}
+
+	/**
+	 * Migrate a local non-image file (SVG, video, font, etc.).
+	 */
+	private function migrateLocalFile(string $url, string $localPath, string $mime = ''): void
+	{
+		$filename = basename($localPath);
+
+		// Determine subdirectory by MIME type
+		$subDir = 'images';
+		if (str_starts_with($mime, 'video/') || str_contains($url, '/video/')) {
+			$subDir = 'video';
+		} elseif (str_starts_with($mime, 'font/') || str_contains($mime, 'font') || str_contains($url, '/fonts/')) {
+			$subDir = 'fonts';
+		} elseif (str_ends_with(strtolower($url), '.svg')) {
+			$subDir = 'images';
+		}
+
+		$destDir = $this->outputDir . '/public/assets/' . $subDir;
+		if (!is_dir($destDir)) {
+			mkdir($destDir, 0755, true);
+		}
+
+		$destPath = $destDir . '/' . $filename;
+
+		if (!copy($localPath, $destPath)) {
+			throw new \RuntimeException("Failed to copy {$localPath}");
+		}
+
+		$newUrl = '/assets/' . $subDir . '/' . $filename;
+		$this->urlMap[$url] = $newUrl;
+	}
+
+	/**
 	 * Get the URL mapping (old → new).
 	 */
 	public function getUrlMap(): array
