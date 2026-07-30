@@ -10,13 +10,72 @@ Loom is not a CMS. There's no admin panel, no database, no build step. Just cont
 
 ## Quick Start
 
+Create a new site that uses Loom as its engine:
+
 ```bash
-git clone https://github.com/mrdave996/loom.git my-site
-cd my-site
-composer install
+mkdir my-site && cd my-site
+git init
+composer init --name=you/my-site --type=project
+composer require mrdave996/loom
 ```
 
-Create a page:
+Create the site structure:
+
+```
+my-site/
+├── public/
+│   ├── index.php          ← bootstrap (see below)
+│   ├── .htaccess
+│   └── assets/
+│       └── css/
+│           └── style.css
+├── content/
+│   └── pages/
+│       └── index.md       ← your first page
+├── templates/             ← optional overrides
+└── cache/
+```
+
+**public/index.php** — the only file you write:
+
+```php
+<?php
+require_once __DIR__ . '/../vendor/autoload.php';
+
+$rootDir = dirname(__DIR__);
+$loomDir = __DIR__ . '/../vendor/mrdave996/loom';
+
+// Merge: site templates override Loom defaults
+$templatesDir = is_dir($rootDir . '/templates')
+    ? $rootDir . '/templates'
+    : $loomDir . '/templates';
+
+// Boot the engine
+$router     = new Loom\Router($rootDir);
+$content    = new Loom\ContentLoader();
+$renderer   = new Loom\Renderer($rootDir, $templatesDir);
+$cache      = new Loom\CacheManager($rootDir);
+$seo        = new Loom\SeoGenerator($rootDir);
+
+// Handle sitemap/robots
+if ($seo->handle()) exit;
+
+// Route
+$pageFile = $router->resolve($_SERVER['REQUEST_URI']);
+if (!$pageFile) { http_response_code(404); /* handle 404 */ exit; }
+
+// Cache check
+$cached = $cache->get($pageFile);
+if ($cached) { echo $cached; exit; }
+
+// Render
+$page = $content->load($pageFile);
+$html = $renderer->render($page);
+$cache->set($pageFile, $html);
+echo $html;
+```
+
+Create your first page (`content/pages/index.md`):
 
 ```yaml
 ---
@@ -42,17 +101,12 @@ Open `http://localhost:8080` in your browser.
 
 ## Migrate from WordPress
 
-Import an entire WordPress site — pages, posts, media, styles, navigation, and forms — in three commands:
+Import an entire WordPress site — pages, posts, media, styles, navigation, and forms:
 
 ```bash
-# 1. Clone Loom
-git clone https://github.com/mrdave996/loom.git my-site && cd my-site
-
-# 2. Install dependencies
-composer install
-
-# 3. Import your WordPress export
-php loom import /path/to/export.xml
+# In your site repo (not the Loom repo)
+composer require mrdave996/loom
+php vendor/bin/loom import /path/to/export.xml
 ```
 
 That's it. Loom will:
@@ -66,7 +120,7 @@ That's it. Loom will:
 **Using UpDraftPlus?** Point the import at your SQL dump:
 
 ```bash
-php loom import /path/to/backup.sql
+php vendor/bin/loom import /path/to/backup.sql
 ```
 
 After import, preview your site:
@@ -78,7 +132,7 @@ php -S localhost:8080 -t public/
 Verify everything looks good:
 
 ```bash
-php loom verify
+php vendor/bin/loom verify
 ```
 
 ---
@@ -111,24 +165,53 @@ The entire core runtime is under 600 lines of PHP across 6 files. Small enough f
 
 ---
 
-## Directory Structure
+## Site Structure
+
+Your site repo (not the Loom framework repo):
 
 ```
-/
-├── public/                    # Document root
-│   ├── index.php              # Single entry point
-│   ├── .htaccess              # URL rewrites
-│   └── assets/                # CSS, JS, images
-├── content/                   # Your content
-│   ├── pages/                 # Markdown pages
-│   └── posts/                 # Blog posts
-├── templates/                 # PHP templates
-│   ├── layouts/               # Page layouts
-│   └── partials/              # Reusable components
-├── src/                       # Core runtime
-├── cache/                     # Generated HTML (gitignored)
-└── loom                       # CLI tool
+my-site/
+├── composer.json            # requires mrdave996/loom
+├── public/
+│   ├── index.php            # bootstrap (thin — loads engine from vendor)
+│   ├── .htaccess            # URL rewrites
+│   └── assets/
+│       └── css/style.css    # your site's styles
+├── content/
+│   ├── pages/               # Markdown pages
+│   └── posts/               # blog posts (optional)
+├── templates/               # optional: override Loom's defaults
+│   ├── layouts/             # page layouts
+│   └── partials/            # reusable components
+└── cache/                   # generated HTML (gitignored)
 ```
+
+The framework lives in `vendor/mrdave996/loom/` — you never edit it directly.
+
+---
+
+## Templates
+
+Loom ships with default templates and partials. Override any of them by placing a file with the same name in your site's `templates/` directory.
+
+### Layouts
+
+| Template | Use case |
+|----------|----------|
+| `default` | Simple page with body content |
+| `pillar` | Long-form page with component slots |
+| `blog` | Blog listing from `content/posts/` |
+| `raw` | Minimal — no nav, no footer, just content |
+
+### Components
+
+Include reusable partials by listing them in your page's front matter `components` array:
+
+- `hero` — Hero section with title, subtitle, and CTA
+- `features` — Grid of feature cards
+- `pricing` — Pricing table
+- `faq` — Accordion FAQ section
+- `cta` — Call-to-action block
 
 ---
 
@@ -160,54 +243,33 @@ features:
 Markdown body rendered as HTML.
 ```
 
-### Templates
-
-| Template | Use case |
-|----------|----------|
-| `default` | Simple page with body content |
-| `pillar` | Long-form page with component slots |
-
-### Components
-
-Include reusable partials by listing them in `components`:
-
-- `hero` — Hero section with title, subtitle, and CTA
-- `features` — Grid of feature cards
-- `pricing` — Pricing table
-- `faq` — Accordion FAQ section
-- `cta` — Call-to-action block
-
 ---
 
 ## CLI Commands
 
+Run from your site repo root:
+
 ```bash
 # Verify content integrity
-php loom verify
+php vendor/bin/loom verify
 
 # Import WordPress site
-php loom import export.xml
-php loom import export.sql
-php loom import export.sql --format=sql --output=./mysite
+php vendor/bin/loom import export.xml
+php vendor/bin/loom import export.sql
+
+# Scrape a mirrored site
+php vendor/bin/loom scrape scrape/sites/example.com.php
 ```
 
 ---
 
-## Deployment
-
-Loom generates static HTML on first request. Deploy to any PHP host:
-
-1. Upload all files (excluding `/vendor/` if you prefer)
-2. Run `composer install --no-dev` on the server
-3. Point your web server to `/public/`
-
-For zero-downtime deploys, use Git:
+## Updating Loom
 
 ```bash
-git pull origin main
-composer install --no-dev
-php loom verify
+composer update mrdave996/loom
 ```
+
+Your content and templates are in your own repo — updating the framework never touches them.
 
 ---
 
@@ -217,18 +279,6 @@ php loom verify
 - **WebP images** — All images converted to WebP during import
 - **Zero database** — No queries, no connection overhead
 - **Minimal runtime** — Under 600 lines of core PHP
-
----
-
-## Contributing
-
-Loom is open source. Contributions welcome.
-
-1. Fork the repo
-2. Create a feature branch
-3. Make your changes
-4. Run `php loom verify`
-5. Submit a pull request
 
 ---
 
