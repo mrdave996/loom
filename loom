@@ -1,0 +1,220 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/vendor/autoload.php';
+
+use Symfony\Component\Yaml\Yaml;
+use Loom\Importer;
+
+$rootDir = __DIR__;
+$errors = [];
+$warnings = [];
+
+// ──────────────────────────────────────────────
+// Subcommand: verify
+// ──────────────────────────────────────────────
+function verify(string $rootDir): int
+{
+	$contentDir = $rootDir . '/content';
+	$templatesDir = $rootDir . '/templates';
+	$errors = [];
+	$warnings = [];
+
+	echo "Loom Verify\n";
+	echo str_repeat('─', 40) . "\n\n";
+
+	// 1. Check all content files have valid front matter
+	echo "Checking content files...\n";
+	$contentFiles = glob($contentDir . '/**/*.md');
+	$contentFiles = array_merge($contentFiles, glob($contentDir . '/*.md'));
+
+	if (empty($contentFiles)) {
+		$warnings[] = "No content files found in {$contentDir}/";
+	}
+
+	foreach ($contentFiles as $file) {
+		$relativePath = str_replace($rootDir . '/', '', $file);
+		$raw = file_get_contents($file);
+
+		if (!str_starts_with($raw, '---')) {
+			$errors[] = "{$relativePath}: Missing YAML front matter";
+			continue;
+		}
+
+		// Extract front matter
+		$end = strpos($raw, '---', 3);
+		if ($end === false) {
+			$errors[] = "{$relativePath}: Unclosed front matter (missing closing ---)";
+			continue;
+		}
+
+		$yamlBlock = substr($raw, 3, $end - 3);
+
+		try {
+			$meta = Yaml::parse($yamlBlock);
+		} catch (\Throwable $e) {
+			$errors[] = "{$relativePath}: Invalid YAML — " . $e->getMessage();
+			continue;
+		}
+
+		if (!is_array($meta)) {
+			$errors[] = "{$relativePath}: Front matter is not a valid YAML mapping";
+			continue;
+		}
+
+		// Check required fields
+		if (empty($meta['title'])) {
+			$warnings[] = "{$relativePath}: Missing 'title' in front matter";
+		}
+
+		// Check template exists
+		if (!empty($meta['template'])) {
+			$templateFile = $templatesDir . '/layouts/' . $meta['template'] . '.php';
+			if (!file_exists($templateFile)) {
+				$errors[] = "{$relativePath}: Template '{$meta['template']}' not found at templates/layouts/{$meta['template']}.php";
+			}
+		}
+
+		// Check referenced partials exist
+		if (!empty($meta['components']) && is_array($meta['components'])) {
+			foreach ($meta['components'] as $component) {
+				$partialFile = $templatesDir . '/partials/' . $component . '.php';
+				if (!file_exists($partialFile)) {
+					$warnings[] = "{$relativePath}: Component '{$component}' not found at templates/partials/{$component}.php";
+				}
+			}
+		}
+
+		echo "  ✓ {$relativePath}\n";
+	}
+
+	// 2. Check templates
+	echo "\nChecking templates...\n";
+	$templateFiles = glob($templatesDir . '/layouts/*.php');
+	if (empty($templateFiles)) {
+		$warnings[] = "No template files found in {$templatesDir}/layouts/";
+	}
+	foreach ($templateFiles as $file) {
+		$relativePath = str_replace($rootDir . '/', '', $file);
+		$lint = shell_exec("php -l " . escapeshellarg($file) . " 2>&1");
+		if (strpos($lint, 'No syntax errors') === false) {
+			$errors[] = "{$relativePath}: PHP syntax error — " . trim($lint);
+		} else {
+			echo "  ✓ {$relativePath}\n";
+		}
+	}
+
+	// 3. Check src files
+	echo "\nChecking source files...\n";
+	$srcFiles = glob($rootDir . '/src/*.php');
+	foreach ($srcFiles as $file) {
+		$relativePath = str_replace($rootDir . '/', '', $file);
+		$lint = shell_exec("php -l " . escapeshellarg($file) . " 2>&1");
+		if (strpos($lint, 'No syntax errors') === false) {
+			$errors[] = "{$relativePath}: PHP syntax error — " . trim($lint);
+		} else {
+			echo "  ✓ {$relativePath}\n";
+		}
+	}
+
+	// 4. Check .gitignore includes cache/
+	echo "\nChecking .gitignore...\n";
+	$gitignore = file_get_contents($rootDir . '/.gitignore');
+	if ($gitignore && strpos($gitignore, '/cache/') === false) {
+		$warnings[] = ".gitignore should include /cache/";
+	} else {
+		echo "  ✓ /cache/ is gitignored\n";
+	}
+
+	// 5. Check entry point
+	echo "\nChecking entry point...\n";
+	$entryPoint = $rootDir . '/public/index.php';
+	if (file_exists($entryPoint)) {
+		$lint = shell_exec("php -l " . escapeshellarg($entryPoint) . " 2>&1");
+		if (strpos($lint, 'No syntax errors') === false) {
+			$errors[] = "public/index.php: PHP syntax error — " . trim($lint);
+		} else {
+			echo "  ✓ public/index.php\n";
+		}
+	} else {
+		$errors[] = "public/index.php not found";
+	}
+
+	// Report
+	echo "\n" . str_repeat('─', 40) . "\n";
+
+	if (!empty($errors)) {
+		echo "\n✗ " . count($errors) . " error(s):\n";
+		foreach ($errors as $error) {
+			echo "  ✗ {$error}\n";
+		}
+	}
+
+	if (!empty($warnings)) {
+		echo "\n⚠ " . count($warnings) . " warning(s):\n";
+		foreach ($warnings as $warning) {
+			echo "  ⚠ {$warning}\n";
+		}
+	}
+
+	if (empty($errors) && empty($warnings)) {
+		echo "\n✓ All checks passed!\n";
+	} elseif (empty($errors)) {
+		echo "\n✓ No errors (with warnings).\n";
+	}
+
+	echo "\n";
+	return empty($errors) ? 0 : 1;
+}
+
+// ──────────────────────────────────────────────
+// Main
+// ──────────────────────────────────────────────
+$command = $argv[1] ?? 'verify';
+
+switch ($command) {
+	case 'verify':
+		exit(verify($rootDir));
+
+	case 'import':
+		$source = $argv[2] ?? null;
+		if (empty($source)) {
+			echo "Usage: php loom import <source> [--format=xml|sql] [--output=dir]\n";
+			echo "\nArguments:\n";
+			echo "  source   Path to WordPress export (.xml or .sql)\n";
+			echo "\nOptions:\n";
+			echo "  --format   Force format: xml or sql (default: auto-detect)\n";
+			echo "  --output   Output directory (default: current directory)\n";
+			exit(1);
+		}
+
+		if (!file_exists($source)) {
+			echo "Error: File not found: {$source}\n";
+			exit(1);
+		}
+
+		// Parse options
+		$format = 'auto';
+		$output = $rootDir;
+		foreach (array_slice($argv, 3) as $opt) {
+			if (str_starts_with($opt, '--format=')) {
+				$format = substr($opt, 9);
+			}
+			if (str_starts_with($opt, '--output=')) {
+				$output = substr($opt, 9);
+			}
+		}
+
+		$importer = new Importer($output);
+		$result = $importer->migrate($source, $format);
+		exit(empty($result['errors']) ? 0 : 1);
+
+	default:
+		echo "Usage: php loom <command>\n";
+		echo "\nCommands:\n";
+		echo "  verify   Check content, templates, and source for errors\n";
+		echo "  import   Import a WordPress site from XML or SQL export\n";
+		exit(1);
+}

@@ -1,0 +1,39 @@
+# Dependencies
+/vendor/
+
+# Cache (generated HTML)
+/cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node (if ever needed for assets)
+/node_modules/
+
+# Composer (lock file is optional for libraries, required for apps — keep it)
+# composer.lock
+
+# Claude
+.claude/
+CLAUDE.md
+HANDOFF.md
+starter.md
+
+# WordPress exports
+*.xml
