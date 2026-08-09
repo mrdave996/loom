@@ -9,10 +9,12 @@ use Symfony\Component\Yaml\Yaml;
 class SeoGenerator
 {
 	private string $contentDir;
+	private string $domain;
 
-	public function __construct(string $contentDir)
+	public function __construct(string $contentDir, string $domain = '')
 	{
 		$this->contentDir = rtrim($contentDir, '/');
+		$this->domain = rtrim($domain, '/');
 	}
 
 	/**
@@ -40,7 +42,7 @@ class SeoGenerator
 
 		foreach ($urls as $url => $meta) {
 			$xml .= "  <url>\n";
-			$xml .= "    <loc>{$url}</loc>\n";
+			$xml .= "    <loc>{$this->absoluteUrl($url)}</loc>\n";
 			if (!empty($meta['lastmod'])) {
 				$xml .= "    <lastmod>{$meta['lastmod']}</lastmod>\n";
 			}
@@ -64,7 +66,7 @@ class SeoGenerator
 		$body .= "Allow: /\n";
 		$body .= "Disallow: /cache/\n";
 		$body .= "\n";
-		$body .= "Sitemap: /sitemap.xml\n";
+		$body .= "Sitemap: {$this->absoluteUrl('/sitemap.xml')}\n";
 
 		return [
 			'header' => 'Content-Type: text/plain; charset=utf-8',
@@ -109,6 +111,29 @@ class SeoGenerator
 		}
 
 		return '/' . $path;
+	}
+
+	/**
+	 * Resolve a site-relative path (e.g. '/about', '/') to an absolute URL.
+	 * Falls back to a live-host derived origin when no domain was configured,
+	 * so sitemap <loc> and robots Sitemap: lines are always absolute (GSC requires it).
+	 */
+	private function absoluteUrl(string $path): string
+	{
+		$domain = $this->domain;
+
+		if ($domain === '') {
+			$host = strtolower((string) ($_SERVER['HTTP_HOST'] ?? ''));
+			$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+			$domain = $domain ?: ($host !== '' ? $scheme . '://' . $host : '');
+		}
+
+		// No domain available at all → return the path as-is (best-effort).
+		if ($domain === '') {
+			return $path;
+		}
+
+		return $domain . ($path === '/' ? '/' : '/' . ltrim($path, '/'));
 	}
 
 	/**

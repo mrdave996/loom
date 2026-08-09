@@ -14,11 +14,14 @@ $rootDir = dirname(__DIR__);
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
 $requestPath = parse_url($requestUri, PHP_URL_PATH) ?? '/';
 
+$configFile = $rootDir . '/config/site.php';
+$siteConfig = is_file($configFile) ? include $configFile : [];
+
 $router = new Router($rootDir . '/content');
 $loader = new ContentLoader();
 $renderer = new Renderer($rootDir . '/templates');
 $cache = new CacheManager($rootDir . '/cache');
-$seo = new SeoGenerator($rootDir . '/content');
+$seo = new SeoGenerator($rootDir . '/content', $siteConfig['domain'] ?? '');
 
 // Handle SEO endpoints (sitemap.xml, robots.txt)
 $seoResponse = $seo->handle($requestPath);
@@ -45,8 +48,11 @@ if ($filePath === null) {
 	exit;
 }
 
-// Check cache (needs source file for mtime comparison)
-if ($cache->isValid($requestPath, $filePath, $rootDir . '/templates')) {
+// Check cache (needs source file for mtime comparison). POST requests are NEVER
+// served from cache — they must always run the page render so form handlers
+// (contact, signup) process the submission instead of echoing stale HTML.
+$isPost = (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST');
+if (!$isPost && $cache->isValid($requestPath, $filePath, $rootDir . '/templates')) {
 	header('Content-Type: text/html; charset=utf-8');
 	echo $cache->get($requestPath);
 	exit;

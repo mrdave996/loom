@@ -3,17 +3,25 @@
  * Contact form partial (auto-generated from WordPress).
  * @var array $page Parsed front matter
  */
-$form = new \Loom\FormHandler();
+// Recipient is site-specific (config/site.php contact.email), never hardcoded in the engine.
+// The config file is optional in the bare engine — without it the form records but emails nowhere.
+$configFile = __DIR__ . '/../../config/site.php';
+$siteConfig = is_file($configFile) ? include $configFile : [];
+$contactEmail = $siteConfig['contact']['email'] ?? '';
+
+$form = new \Loom\FormHandler('loom-form-secret', $contactEmail);
 $submitted = false;
 $errors = [];
 $success = false;
+$emailed = false;
 
 // Handle form submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_csrf'])) {
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !empty($_POST['_csrf'])) {
 	$result = $form->process($_POST);
 	$submitted = true;
 	$errors = $result['errors'];
 	$success = $result['success'];
+	$emailed = $result['emailed'] ?? false;
 }
 ?>
 
@@ -21,7 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_csrf'])) {
 	<h2>Contact</h2>
 
 	<?php if ($success): ?>
-		<p class="success">Thank you! Your message has been sent.</p>
+		<?php if ($emailed): ?>
+			<p class="success">Thank you! Your message has been sent to <?= htmlspecialchars($contactEmail) ?>.</p>
+		<?php else: ?>
+			<p class="success">Thank you! Your message has been recorded.</p>
+		<?php endif; ?>
 	<?php else: ?>
 
 		<?php if (!empty($errors)): ?>
@@ -50,8 +62,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_csrf'])) {
 				<textarea id="message" name="message" rows="5" required><?php echo htmlspecialchars($_POST['message'] ?? '') ?></textarea>
 			</div>
 
-			<button type="submit" class="btn btn-primary">Send</button>
+			<button type="submit" class="btn btn--primary">Send message</button>
 		</form>
+		<p class="form-note">We&#8217;ll reply to your enquiry during business hours.</p>
 
 	<?php endif; ?>
 </section>
