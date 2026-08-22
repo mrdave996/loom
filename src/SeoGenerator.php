@@ -103,14 +103,14 @@ class SeoGenerator
 	 */
 	private function pathToUrl(string $path): string
 	{
-		// index.md → /, about.md → /about, blog/post.md → /blog/post
+		// index.md → /, about.md → /about/, blog/post.md → /blog/post/
 		$path = preg_replace('/\.md$/', '', $path);
 
 		if ($path === 'index') {
 			return '/';
 		}
 
-		return '/' . $path;
+		return '/' . trim($path, '/') . '/';
 	}
 
 	/**
