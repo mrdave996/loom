@@ -8,8 +8,13 @@
 $configFile = __DIR__ . '/../../config/site.php';
 $siteConfig = is_file($configFile) ? include $configFile : [];
 $contactEmail = $siteConfig['contact']['email'] ?? '';
+$analytics = null;
+if (($siteConfig['analytics']['enabled'] ?? false) === true || getenv('LOOM_ANALYTICS_ENABLED') === '1') {
+	$analyticsRoot = getenv('LOOM_ANALYTICS_DIR') ?: ($siteConfig['analytics']['directory'] ?? dirname(__DIR__, 2) . '/private/analytics');
+	$analytics = new \Loom\Analytics\ServerEventRecorder(new \Loom\Analytics\FileAnalyticsStore($analyticsRoot), true);
+}
 
-$form = new \Loom\FormHandler('loom-form-secret', $contactEmail);
+$form = new \Loom\FormHandler('loom-form-secret', $contactEmail, null, [], $analytics);
 $submitted = false;
 $errors = [];
 $success = false;

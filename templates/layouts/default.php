@@ -19,6 +19,7 @@
 	<?php if (!empty($page['favicon'])): ?>
 	<link rel="icon" href="<?= htmlspecialchars($page['favicon']) ?>" sizes="32x32">
 	<?php endif; ?>
+	<?php include __DIR__ . '/../partials/analytics.php'; ?>
 </head>
 <body>
 	<div class="wp-site-blocks">

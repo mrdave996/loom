@@ -9,6 +9,7 @@ class FormHandler
 	private string $secretKey;
 	private string $toEmail;
 	private string $fromEmail;
+	private ?\Loom\Analytics\ServerEventRecorder $analytics;
 
 	/** @var array{enabled: bool, honeypot_name: string, min_time: float, rate_limit: int, rate_window: int, log_spam: bool} */
 	private array $spam;
@@ -25,11 +26,12 @@ class FormHandler
 	 *                                - rate_window (int)     : Rate-limit window in seconds, default 3600.
 	 *                                - log_spam (bool)       : Write rejected submissions to files/ for analysis, default true.
 	 */
-	public function __construct(string $secretKey = 'loom-form-secret', string $toEmail = '', ?string $fromEmail = null, array $spamConfig = [])
+	public function __construct(string $secretKey = 'loom-form-secret', string $toEmail = '', ?string $fromEmail = null, array $spamConfig = [], ?\Loom\Analytics\ServerEventRecorder $analytics = null)
 	{
 		$this->secretKey = $secretKey;
 		$this->toEmail = $toEmail;
 		$this->fromEmail = $fromEmail ?? '';
+		$this->analytics = $analytics;
 
 		$this->spam = array_merge([
 			'enabled'        => true,
@@ -142,6 +144,7 @@ class FormHandler
 
 		// Store submission (flat-file JSON + optional email delivery).
 		$stored = $this->storeSubmission($data);
+		$this->analytics?->record('lead_created');
 
 		return [
 			'success' => true,

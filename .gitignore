@@ -4,6 +4,10 @@
 # Cache (generated HTML)
 /cache/
 
+# First-party analytics runtime data
+/private/analytics/*
+!/private/analytics/.gitkeep
+
 # Environment
 .env
 .env.local

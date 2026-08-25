@@ -9,6 +9,9 @@ use Loom\ContentLoader;
 use Loom\Renderer;
 use Loom\CacheManager;
 use Loom\SeoGenerator;
+use Loom\Analytics\AnalyticsEndpoint;
+use Loom\Analytics\EventValidator;
+use Loom\Analytics\FileAnalyticsStore;
 
 $rootDir = dirname(__DIR__);
 $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
@@ -22,6 +25,18 @@ $loader = new ContentLoader();
 $renderer = new Renderer($rootDir . '/templates');
 $cache = new CacheManager($rootDir . '/cache');
 $seo = new SeoGenerator($rootDir . '/content', $siteConfig['domain'] ?? '');
+
+$analyticsEnabled = ($siteConfig['analytics']['enabled'] ?? false) === true || getenv('LOOM_ANALYTICS_ENABLED') === '1';
+$analyticsRoot = getenv('LOOM_ANALYTICS_DIR') ?: ($siteConfig['analytics']['directory'] ?? ($rootDir . '/private/analytics'));
+if ($requestPath === '/analytics/event') {
+	$analytics = new AnalyticsEndpoint(new FileAnalyticsStore($analyticsRoot, new EventValidator()), $analyticsEnabled);
+	$response = $analytics->process($_SERVER['REQUEST_METHOD'] ?? 'GET', (string)file_get_contents('php://input'));
+	http_response_code($response['status']);
+	header('Content-Type: application/json; charset=utf-8');
+	header('Cache-Control: no-store, private');
+	echo $response['body'];
+	exit;
+}
 
 // Handle SEO endpoints (sitemap.xml, robots.txt)
 $seoResponse = $seo->handle($requestPath);
@@ -52,7 +67,7 @@ if ($filePath === null) {
 // served from cache — they must always run the page render so form handlers
 // (contact, signup) process the submission instead of echoing stale HTML.
 $isPost = (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST');
-if (!$isPost && $cache->isValid($requestPath, $filePath, $rootDir . '/templates')) {
+if (!$analyticsEnabled && getenv('LOOM_ANALYTICS_ENABLED') === false && $cache->isValid($requestPath, $filePath, $rootDir . '/templates')) {
 	header('Content-Type: text/html; charset=utf-8');
 	echo $cache->get($requestPath);
 	exit;
