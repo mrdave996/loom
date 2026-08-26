@@ -38,7 +38,16 @@
     function context() {
         var now = Date.now(), visitor = get(localStorage, 'loom_visitor_id') || id('vis'), session = get(sessionStorage, 'loom_session_id');
         var started = parseInt(get(sessionStorage, 'loom_session_started_at') || '0', 10), fresh = !session || !started || now - started > sessionTimeout;
-        if (fresh) { session = id('ses'); set(sessionStorage, 'loom_session_id', session); set(sessionStorage, 'loom_session_started_at', String(now)); set(sessionStorage, 'loom_session_landing_page', path()); set(sessionStorage, 'loom_session_attribution', JSON.stringify(attribution())); set(sessionStorage, 'loom_session_referrer', referrer()); }
+        if (fresh) {
+            var firstReferrer = referrer();
+            try { if (firstReferrer && new URL(firstReferrer).origin === window.location.origin) firstReferrer = ''; } catch (e) { firstReferrer = ''; }
+            session = id('ses');
+            set(sessionStorage, 'loom_session_id', session);
+            set(sessionStorage, 'loom_session_started_at', String(now));
+            set(sessionStorage, 'loom_session_landing_page', path());
+            set(sessionStorage, 'loom_session_attribution', JSON.stringify(attribution()));
+            set(sessionStorage, 'loom_session_referrer', firstReferrer);
+        }
         set(localStorage, 'loom_visitor_id', visitor); cookie('loom_visitor_id', visitor, 34128000); cookie('loom_session_id', session, 7200);
         var original = get(localStorage, 'loom_original_attribution');
         if (!original && Object.keys(attribution()).length) { original = JSON.stringify(attribution()); set(localStorage, 'loom_original_attribution', original); }
