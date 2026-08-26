@@ -280,6 +280,22 @@ Your content and templates are in your own repo — updating the framework never
 - **Zero database** — No queries, no connection overhead
 - **Minimal runtime** — Under 600 lines of core PHP
 
+## First-party analytics
+
+Analytics is optional and remains flat-file, privacy-aware, and database-free. Enable it with
+`LOOM_ANALYTICS_ENABLED=1` (and leave `LOOM_ANALYTICS_CONSENT_REQUIRED=1` unless the site has
+an explicitly reviewed first-party measurement policy). The shared tracker records anonymous
+session journeys, persisted UTM/referrer attribution, bounded search-referrer keywords when a
+search engine supplies `q`, `query`, or `text`, CTA/form events, and one bounded `page_exit` event
+per page view. Page-exit metadata contains elapsed and visible/active seconds; reports must show
+coverage and must not infer time from gaps between arbitrary events.
+
+Known AI assistant referrers such as ChatGPT, Claude, Perplexity, Gemini, Copilot, Grok, DeepSeek,
+You.com, Phind, and Poe can be classified by the separate reporting application when a human click
+arrives with a usable referrer. Copied or referrer-stripped AI links remain direct/unattributed;
+tagged UTM links are the reliable fallback. Do not put names, email addresses, message bodies, or
+raw IP addresses in analytics metadata.
+
 ---
 
 ## License
