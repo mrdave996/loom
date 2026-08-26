@@ -10,6 +10,8 @@ $root = sys_get_temp_dir() . '/loom-shared-analytics-' . bin2hex(random_bytes(5)
 $endpoint = new Loom\Analytics\AnalyticsEndpoint(new Loom\Analytics\FileAnalyticsStore($root), true);
 $response = $endpoint->process('POST', json_encode(['event_type'=>'page_view','path'=>'/','metadata'=>['source'=>'test']], JSON_THROW_ON_ERROR));
 if ($response['status'] !== 202) throw new RuntimeException('Expected 202.');
+$exit = $endpoint->process('POST', json_encode(['event_type'=>'page_exit','path'=>'/','metadata'=>['duration_seconds'=>12,'active_duration_seconds'=>9]], JSON_THROW_ON_ERROR));
+if ($exit['status'] !== 202) throw new RuntimeException('Expected page-exit 202.');
 $files = glob($root . '/events/*/*/*.ndjson') ?: [];
 if (count($files) !== 1) throw new RuntimeException('Expected one event file.');
 $bad = $endpoint->process('POST', json_encode(['event_type'=>'page_view','metadata'=>['email'=>'blocked@example.test']], JSON_THROW_ON_ERROR));
