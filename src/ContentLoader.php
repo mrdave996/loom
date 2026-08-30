@@ -25,6 +25,31 @@ class ContentLoader
 	}
 
 	/**
+	 * Read only the frontmatter components list without converting the page.
+	 *
+	 * @return string[]
+	 */
+	public function components(string $filePath): array
+	{
+		$raw = file_get_contents($filePath);
+		if ($raw === false || !preg_match('/^---\s*\n(.*?)\n---/s', $raw, $match)) {
+			return [];
+		}
+
+		try {
+			$frontMatter = Yaml::parse($match[1]);
+		} catch (\Throwable) {
+			return [];
+		}
+
+		if (!is_array($frontMatter) || !is_array($frontMatter['components'] ?? null)) {
+			return [];
+		}
+
+		return array_values(array_filter(array_map('strval', $frontMatter['components'])));
+	}
+
+	/**
 	 * Parse a markdown file into front matter + HTML body.
 	 *
 	 * @return array{front_matter: array, body: string}
