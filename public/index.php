@@ -63,24 +63,29 @@ if ($filePath === null) {
 	exit;
 }
 
+// Form pages contain per-session CSRF tokens and must never use the HTML cache.
+$page = $loader->load($filePath);
+$components = $page['front_matter']['components'] ?? [];
+$hasForm = is_array($components) && (in_array('form-contact', $components, true) || in_array('form-signup', $components, true));
+$isQuery = parse_url($requestUri, PHP_URL_QUERY) !== null;
+
 // Check cache (needs source file for mtime comparison). POST requests are NEVER
 // served from cache — they must always run the page render so form handlers
 // (contact, signup) process the submission instead of echoing stale HTML.
 $isPost = (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST');
-if (!$analyticsEnabled && getenv('LOOM_ANALYTICS_ENABLED') === false && $cache->isValid($requestPath, $filePath, $rootDir . '/templates')) {
+if (!$isPost && !$isQuery && !$hasForm && $cache->isValid($requestPath, $filePath, $rootDir . '/templates')) {
 	header('Content-Type: text/html; charset=utf-8');
 	echo $cache->get($requestPath);
 	exit;
 }
 
-// Parse content
-$page = $loader->load($filePath);
-
 // Render through template
 $html = $renderer->render($page['front_matter'], $page['body']);
 
-// Cache the rendered output
-$cache->set($requestPath, $html);
+// Never cache query-specific, POST, or session-bound form responses.
+if (!$isPost && !$isQuery && !$hasForm) {
+	$cache->set($requestPath, $html);
+}
 
 // Output
 header('Content-Type: text/html; charset=utf-8');

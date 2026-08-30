@@ -19,6 +19,31 @@ composer init --name=you/my-site --type=project
 composer require mrdave996/loom
 ```
 
+### Form spam protection
+
+Contact forms include CSRF protection, a honeypot, minimum completion time,
+session/IP rate limits, field-size limits, and optional Cloudflare Turnstile.
+Turnstile is configured per site, outside the shared engine, for example:
+
+```php
+'contact' => [
+    'email' => 'you@example.com',
+    'spam' => [
+        'turnstile' => [
+            'enabled' => true,
+            'site_key' => getenv('TURNSTILE_SITE_KEY'),
+            'secret_key' => getenv('TURNSTILE_SECRET_KEY'),
+        ],
+    ],
+],
+```
+
+Keep the secret key in the server environment, never in Git. Turnstile is
+verified server-side against Cloudflare before a submission is stored or
+emailed. Server-level controls such as fail2ban can complement this, but are
+not a substitute for application validation because they depend on web-server
+logs and stable client IPs.
+
 Create the site structure:
 
 ```

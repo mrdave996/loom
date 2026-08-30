@@ -11,8 +11,9 @@ class FormHandler
 	private string $fromEmail;
 	private ?\Loom\Analytics\ServerEventRecorder $analytics;
 
-	/** @var array{enabled: bool, honeypot_name: string, min_time: float, rate_limit: int, rate_window: int, log_spam: bool} */
+	/** @var array<string, mixed> */
 	private array $spam;
+	private $turnstileVerifier;
 
 	/**
 	 * @param string      $secretKey  CSRF pepper (not strictly required — session token is used).
@@ -25,13 +26,19 @@ class FormHandler
 	 *                                - rate_limit (int)      : Max submissions per window (0 = no limit), default 5.
 	 *                                - rate_window (int)     : Rate-limit window in seconds, default 3600.
 	 *                                - log_spam (bool)       : Write rejected submissions to files/ for analysis, default true.
+	 *                                - turnstile (array)     : Optional Cloudflare Turnstile settings.
+	 *                                - ip_rate_limit (int)   : Max submissions per IP window, default 10.
+	 *                                - ip_rate_window (int)  : IP rate-limit window in seconds, default 3600.
+	 *                                - max_field_length (int): Maximum name/email length, default 500.
+	 *                                - max_message_length (int): Maximum message length, default 10000.
 	 */
-	public function __construct(string $secretKey = 'loom-form-secret', string $toEmail = '', ?string $fromEmail = null, array $spamConfig = [], ?\Loom\Analytics\ServerEventRecorder $analytics = null)
+	public function __construct(string $secretKey = 'loom-form-secret', string $toEmail = '', ?string $fromEmail = null, array $spamConfig = [], ?\Loom\Analytics\ServerEventRecorder $analytics = null, ?callable $turnstileVerifier = null)
 	{
 		$this->secretKey = $secretKey;
 		$this->toEmail = $toEmail;
 		$this->fromEmail = $fromEmail ?? '';
 		$this->analytics = $analytics;
+		$this->turnstileVerifier = $turnstileVerifier;
 
 		$this->spam = array_merge([
 			'enabled'        => true,
@@ -40,6 +47,11 @@ class FormHandler
 			'rate_limit'     => 5,
 			'rate_window'    => 3600,
 			'log_spam'       => true,
+			'ip_rate_limit'  => 10,
+			'ip_rate_window' => 3600,
+			'max_field_length' => 500,
+			'max_message_length' => 10000,
+			'turnstile'      => [],
 		], $spamConfig);
 
 		// CSRF tokens are stored in the session, so a session must be active.
@@ -89,6 +101,15 @@ class FormHandler
 			];
 		}
 
+		if (!$this->verifyTurnstile($postData)) {
+			$this->logSpamSubmission($postData, 'turnstile');
+			return [
+				'success' => false,
+				'errors' => ['Please complete the security check and try again.'],
+				'data' => [],
+			];
+		}
+
 		// ── Anti-spam checks ──────────────────────────────────────────────
 
 		$spamAction = $this->checkSpam($postData);
@@ -114,10 +135,20 @@ class FormHandler
 		// ── Field extraction ──────────────────────────────────────────────
 
 		$data = [
-			'name' => trim($postData['name'] ?? ''),
-			'email' => trim($postData['email'] ?? ''),
-			'message' => trim($postData['message'] ?? ''),
+			'name' => $this->postString($postData['name'] ?? ''),
+			'email' => $this->postString($postData['email'] ?? ''),
+			'message' => $this->postString($postData['message'] ?? ''),
 		];
+
+		if (strlen($data['name']) > (int)$this->spam['max_field_length']
+			|| strlen($data['email']) > (int)$this->spam['max_field_length']
+			|| strlen($data['message']) > (int)$this->spam['max_message_length']) {
+			return [
+				'success' => false,
+				'errors' => ['Please shorten your submission and try again.'],
+				'data' => $data,
+			];
+		}
 
 		// Validate required fields
 		if ($data['name'] === '') {
@@ -307,7 +338,84 @@ class FormHandler
 			}
 		}
 
+		if ($this->ipRateLimited()) {
+			$this->logSpamSubmission($postData, 'ip_rate_limited');
+			return 'reject';
+		}
+
 		return 'pass';
+	}
+
+	private function verifyTurnstile(array $postData): bool
+	{
+		$config = is_array($this->spam['turnstile'] ?? null) ? $this->spam['turnstile'] : [];
+		if (($config['enabled'] ?? false) !== true) {
+			return true;
+		}
+
+		$token = $this->postString($postData['cf-turnstile-response'] ?? '');
+		$secret = $this->postString($config['secret_key'] ?? (getenv('TURNSTILE_SECRET_KEY') ?: ''));
+		if ($token === '' || $secret === '') {
+			return false;
+		}
+
+		if ($this->turnstileVerifier !== null) {
+			return (bool)call_user_func($this->turnstileVerifier, $token, $secret, $_SERVER['REMOTE_ADDR'] ?? '');
+		}
+
+		$payload = http_build_query(['secret' => $secret, 'response' => $token, 'remoteip' => $_SERVER['REMOTE_ADDR'] ?? '']);
+		$context = stream_context_create(['http' => [
+			'method' => 'POST',
+			'header' => "Content-Type: application/x-www-form-urlencoded\r\nAccept: application/json\r\n",
+			'content' => $payload,
+			'timeout' => 5,
+			'ignore_errors' => true,
+		]]);
+		$response = @file_get_contents('https://challenges.cloudflare.com/turnstile/v0/siteverify', false, $context);
+		$result = $response === false ? null : json_decode($response, true);
+		return is_array($result) && ($result['success'] ?? false) === true;
+	}
+
+	private function postString(mixed $value): string
+	{
+		return is_scalar($value) ? trim((string)$value) : '';
+	}
+
+	private function ipRateLimited(): bool
+	{
+		$limit = (int)$this->spam['ip_rate_limit'];
+		$window = (int)$this->spam['ip_rate_window'];
+		$ip = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+		if ($limit <= 0 || $window <= 0 || $ip === 'unknown') {
+			return false;
+		}
+
+		$dir = dirname(__DIR__) . '/private/form-rate-limits';
+		if (!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) {
+			return false;
+		}
+		$file = $dir . '/' . hash_hmac('sha256', $ip, $this->secretKey) . '.json';
+		$handle = @fopen($file, 'c+');
+		if ($handle === false || !flock($handle, LOCK_EX)) {
+			if (is_resource($handle)) fclose($handle);
+			return false;
+		}
+
+		$raw = stream_get_contents($handle);
+		$state = is_string($raw) ? json_decode($raw, true) : null;
+		$now = time();
+		if (!is_array($state) || $now - (int)($state['started'] ?? 0) >= $window) {
+			$state = ['started' => $now, 'count' => 0];
+		}
+		$state['count'] = (int)$state['count'] + 1;
+		ftruncate($handle, 0);
+		rewind($handle);
+		fwrite($handle, json_encode($state, JSON_THROW_ON_ERROR));
+		fflush($handle);
+		flock($handle, LOCK_UN);
+		fclose($handle);
+
+		return $state['count'] > $limit;
 	}
 
 	/**
@@ -333,9 +441,9 @@ class FormHandler
 			'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
 			'user_agent' => substr($_SERVER['HTTP_USER_AGENT'] ?? 'unknown', 0, 255),
 			'fields' => [
-				'name' => substr($postData['name'] ?? '', 0, 500),
-				'email' => substr($postData['email'] ?? '', 0, 500),
-				'message' => substr($postData['message'] ?? '', 0, 2000),
+				'name' => substr($this->postString($postData['name'] ?? ''), 0, 500),
+				'email' => substr($this->postString($postData['email'] ?? ''), 0, 500),
+				'message' => substr($this->postString($postData['message'] ?? ''), 0, 2000),
 			],
 		];
 
