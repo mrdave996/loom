@@ -14,7 +14,9 @@ if (($siteConfig['analytics']['enabled'] ?? false) === true || getenv('LOOM_ANAL
 	$analytics = new \Loom\Analytics\ServerEventRecorder(new \Loom\Analytics\FileAnalyticsStore($analyticsRoot), true);
 }
 
-$form = new \Loom\FormHandler('loom-form-secret', $contactEmail, null, [], $analytics);
+$spamConfig = $siteConfig['contact']['spam'] ?? [];
+$form = new \Loom\FormHandler('loom-form-secret', $contactEmail, null, $spamConfig, $analytics);
+$turnstile = is_array($spamConfig['turnstile'] ?? null) ? $spamConfig['turnstile'] : [];
 $submitted = false;
 $errors = [];
 $success = false;
@@ -66,6 +68,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !empty($_POST['_csrf']))
 				<label for="message">Message</label>
 				<textarea id="message" name="message" rows="5" required><?php echo htmlspecialchars($_POST['message'] ?? '') ?></textarea>
 			</div>
+
+			<?php if (($turnstile['enabled'] ?? false) === true && !empty($turnstile['site_key'])): ?>
+				<div class="cf-turnstile" data-sitekey="<?= htmlspecialchars($turnstile['site_key'], ENT_QUOTES, 'UTF-8') ?>"></div>
+				<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+			<?php endif; ?>
 
 			<button type="submit" class="btn btn--primary">Send message</button>
 		</form>
