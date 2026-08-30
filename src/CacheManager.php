@@ -67,10 +67,10 @@ class CacheManager
 	public function set(
 		string $path,
 		string $html,
-		string $sourceFile,
-		string $templatesDir,
-		array $dependencies,
-		string $expectedFingerprint
+		?string $sourceFile = null,
+		?string $templatesDir = null,
+		array $dependencies = [],
+		?string $expectedFingerprint = null
 	): bool
 	{
 		$cacheFile = $this->cachePath($path);
