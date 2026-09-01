@@ -5,6 +5,7 @@
     var endpoint = script.dataset.endpoint || '/analytics/event';
     var consentRequired = script.dataset.consentRequired === 'true';
     var consentKey = 'loom_analytics_consent';
+    var signupTokenKey = 'loom_signup_token';
     var sessionTimeout = 30 * 60 * 1000;
     var pageEnteredAt = Date.now();
     var pageExitSent = false;
@@ -53,6 +54,14 @@
         if (!original && Object.keys(attribution()).length) { original = JSON.stringify(attribution()); set(localStorage, 'loom_original_attribution', original); }
         return { visitor_id: visitor, session_id: session, landing_page: get(sessionStorage, 'loom_session_landing_page') || path(), attribution: parse(get(sessionStorage, 'loom_session_attribution')), original_attribution: parse(original), original_referrer: get(sessionStorage, 'loom_session_referrer') || '', current_attribution: attribution(), new_session: fresh };
     }
+    function signupContext(tenant) {
+        if (!granted()) return null;
+        var c = context(), token = get(sessionStorage, signupTokenKey) || id('sig');
+        set(sessionStorage, signupTokenKey, token);
+        return { signup_token: token, session_id: c.session_id, visitor_id: c.visitor_id, tenant: String(tenant || '').slice(0, 63) };
+    }
+    window.LoomAnalytics = window.LoomAnalytics || {};
+    window.LoomAnalytics.signupContext = signupContext;
     function send(type, extra) {
         if (!granted()) return;
         var c = context(), event = Object.assign({ event_id: id('evt'), event_type: type, occurred_at: new Date().toISOString(), visitor_id: c.visitor_id, session_id: c.session_id, url: location.origin + path(), path: path(), page_title: document.title.slice(0, 200), referrer: referrer(), search_keyword: searchKeyword(), original_referrer: c.original_referrer, landing_page: c.landing_page, attribution: c.attribution, session_attribution: c.attribution, original_attribution: c.original_attribution, utm_source: c.current_attribution.utm_source || '', utm_medium: c.current_attribution.utm_medium || '', utm_campaign: c.current_attribution.utm_campaign || '', utm_term: c.current_attribution.utm_term || '', utm_content: c.current_attribution.utm_content || '', metadata: {} }, extra || {});
