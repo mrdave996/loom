@@ -25,6 +25,16 @@ class ContentLoader
 	}
 
 	/**
+	 * Convert a Markdown fragment directly to HTML without front matter parsing.
+	 *
+	 * Consumer templates use this for structured section content.
+	 */
+	public function convertToHtml(string $markdown): string
+	{
+		return (string) $this->converter->convert($markdown);
+	}
+
+	/**
 	 * Read only the frontmatter components list without converting the page.
 	 *
 	 * @return string[]
