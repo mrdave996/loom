@@ -196,10 +196,15 @@ class FormHandler
 	 */
 	private function storeSubmission(array $data): bool
 	{
-		$submissionsDir = dirname(__DIR__) . '/content/submissions';
+		$submissionsDir = $this->projectDir('content/submissions');
 
 		if (!is_dir($submissionsDir)) {
-			mkdir($submissionsDir, 0755, true);
+			if (!@mkdir($submissionsDir, 0775, true) && !is_dir($submissionsDir)) {
+				// Audit persistence is best-effort (runtime data); email
+				// delivery must not depend on the content tree being
+				// writable by the PHP worker.
+				return $this->toEmail === '' ? false : $this->sendEmail($data);
+			}
 		}
 
 		$timestamp = date('Y-m-d_H-i-s');
@@ -390,7 +395,7 @@ class FormHandler
 			return false;
 		}
 
-		$dir = dirname(__DIR__) . '/private/form-rate-limits';
+		$dir = $this->projectDir('private/form-rate-limits');
 		if (!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) {
 			return false;
 		}
@@ -419,6 +424,20 @@ class FormHandler
 	}
 
 	/**
+	 * Resolve a runtime data directory against the consumer project root.
+	 * When composer-installed, this file lives four levels below the project
+	 * root (vendor/<vendor>/<pkg>/src); in an engine checkout the package
+	 * root IS the project root. Runtime data must never land inside vendor/.
+	 */
+	private function projectDir(string $relative): string
+	{
+		$inVendor = str_contains(__DIR__, DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR);
+		$projectRoot = $inVendor ? dirname(__DIR__, 4) : dirname(__DIR__);
+
+		return $projectRoot . '/' . $relative;
+	}
+
+	/**
 	 * Optionally log a rejected submission for analysis.
 	 */
 	private function logSpamSubmission(array $postData, string $reason): void
@@ -427,9 +446,13 @@ class FormHandler
 			return;
 		}
 
-		$logDir = dirname(__DIR__) . '/content/submissions';
+		$logDir = $this->projectDir('content/submissions');
 		if (!is_dir($logDir)) {
-			mkdir($logDir, 0755, true);
+			if (!@mkdir($logDir, 0775, true) && !is_dir($logDir)) {
+				// Spam audit is best-effort; never warn on every rejected
+				// submission when the content tree is not writable.
+				return;
+			}
 		}
 
 		$timestamp = date('Y-m-d_H-i-s');
