@@ -6,6 +6,8 @@ A lightweight, Git-native publishing engine that renders Markdown and reusable c
 
 Loom is not a CMS. There's no admin panel, no database, no build step. Just content.
 
+Run it on your own servers, or get it hosted and managed for you at [loomweb.co](https://loomweb.co).
+
 ---
 
 ## Quick Start
