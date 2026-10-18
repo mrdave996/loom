@@ -25,7 +25,7 @@
         if (!document.referrer) return '';
         try {
             var u = new URL(document.referrer), host = u.hostname.toLowerCase();
-            if (!/(^|\\.)((google|bing|yahoo|duckduckgo)\\.)/.test(host)) return '';
+            if (!/(^|\.)((google|bing|yahoo|duckduckgo)\.)/.test(host)) return '';
             return (u.searchParams.get('q') || u.searchParams.get('query') || u.searchParams.get('text') || '').slice(0, 200);
         } catch (e) { return ''; }
     }
@@ -60,6 +60,26 @@
         if (navigator.sendBeacon && navigator.sendBeacon(endpoint, new Blob([body], { type: 'application/json' }))) return;
         if (window.fetch) fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body, keepalive: true, credentials: 'same-origin' }).catch(function () {});
     }
+    function signupToken() {
+        var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+        var bytes = new Uint8Array(40);
+        if (window.crypto && crypto.getRandomValues) crypto.getRandomValues(bytes);
+        else for (var i = 0; i < 40; i++) bytes[i] = Math.floor(Math.random() * 256);
+        var out = '';
+        for (var j = 0; j < 40; j++) out += alphabet[bytes[j] % 64];
+        return out;
+    }
+    function signupContext(website) {
+        var tenant = String(website || '').replace(/[^a-z0-9_-]/g, '').slice(0, 62);
+        if (!tenant) return null;
+        var storageKey = 'loom_signup_token_' + tenant;
+        var token = get(sessionStorage, storageKey);
+        if (!token) { token = signupToken(); set(sessionStorage, storageKey, token); }
+        var c = context();
+        return { signup_token: token, session_id: c.session_id, visitor_id: c.visitor_id, tenant: tenant, attribution: c.attribution, original_attribution: c.original_attribution, referrer: c.original_referrer || referrer(), landing_page: c.landing_page };
+    }
+    // Correlation API must exist before the consent gate; send() gates delivery itself.
+    window.LoomAnalytics = { signupContext: signupContext, track: send };
     if (!granted()) return;
     var initial = context();
     if (initial.new_session) send('session_start');
