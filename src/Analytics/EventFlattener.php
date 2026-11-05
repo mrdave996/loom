@@ -42,6 +42,15 @@ final class EventFlattener
         if ($offset > $size) {
             $offset = 0;
         }
+        if ($offset > 0 && $offset < $size) {
+            $probe = fopen($rawPath, 'rb');
+            if ($probe !== false) {
+                fseek($probe, $offset - 1);
+                $previousByte = fread($probe, 1);
+                fclose($probe);
+                if ($previousByte !== "\n") $offset = 0;
+            }
+        }
 
         $handle = fopen($rawPath, 'rb');
         if ($handle === false || fseek($handle, $offset) !== 0) {
