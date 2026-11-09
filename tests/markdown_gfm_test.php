@@ -29,4 +29,11 @@ if (!preg_match('/<a href="https:\/\/example\.test">/', $inline)) {
 	throw new RuntimeException("Expected GFM autolink, got: {$inline}");
 }
 
+// Raw HTML must still pass through unescaped: consumers embed iframes etc.
+// (GithubFlavoredMarkdownExtension's bundled DisallowedRawHtml would break them).
+$raw = $loader->convertToHtml('<iframe src="https://maps.example.test/embed"></iframe>');
+if (!str_contains($raw, '<iframe src="https://maps.example.test/embed">')) {
+	throw new RuntimeException("Expected raw HTML pass-through, got: {$raw}");
+}
+
 echo "markdown_gfm_test: PASS\n";
