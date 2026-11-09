@@ -8,6 +8,7 @@ use League\CommonMark\Environment\Environment;
 use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
 use League\CommonMark\Extension\FrontMatter\FrontMatterExtension;
 use League\CommonMark\Extension\FrontMatter\Output\RenderedContentWithFrontMatter;
+use League\CommonMark\Extension\GithubFlavoredMarkdownExtension;
 use League\CommonMark\MarkdownConverter;
 use Symfony\Component\Yaml\Yaml;
 
@@ -20,6 +21,9 @@ class ContentLoader
 		$environment = new Environment([]);
 		$environment->addExtension(new CommonMarkCoreExtension());
 		$environment->addExtension(new FrontMatterExtension());
+		// GFM: pipe tables, strikethrough, autolinks, task lists. Without it,
+		// pipe tables render as literal "| a | b |" text on consumer pages.
+		$environment->addExtension(new GithubFlavoredMarkdownExtension());
 
 		$this->converter = new MarkdownConverter($environment);
 	}
