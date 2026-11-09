@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Loom;
 
 use League\CommonMark\Environment\Environment;
+use League\CommonMark\Extension\Autolink\AutolinkExtension;
 use League\CommonMark\Extension\CommonMark\CommonMarkCoreExtension;
 use League\CommonMark\Extension\FrontMatter\FrontMatterExtension;
 use League\CommonMark\Extension\FrontMatter\Output\RenderedContentWithFrontMatter;
-use League\CommonMark\Extension\GithubFlavoredMarkdownExtension;
+use League\CommonMark\Extension\Strikethrough\StrikethroughExtension;
+use League\CommonMark\Extension\Table\TableExtension;
+use League\CommonMark\Extension\TaskList\TaskListExtension;
 use League\CommonMark\MarkdownConverter;
 use Symfony\Component\Yaml\Yaml;
 
@@ -21,9 +24,15 @@ class ContentLoader
 		$environment = new Environment([]);
 		$environment->addExtension(new CommonMarkCoreExtension());
 		$environment->addExtension(new FrontMatterExtension());
-		// GFM: pipe tables, strikethrough, autolinks, task lists. Without it,
-		// pipe tables render as literal "| a | b |" text on consumer pages.
-		$environment->addExtension(new GithubFlavoredMarkdownExtension());
+		// GFM features: pipe tables, strikethrough, autolinks, task lists.
+		// Without these, pipe tables render as literal "| a | b |" text on
+		// consumer pages. Registered individually (not GithubFlavoredMarkdownExtension)
+		// because that bundle also enables DisallowedRawHtml, which escapes the
+		// raw HTML consumers legitimately embed in markdown (e.g. map iframes).
+		$environment->addExtension(new TableExtension());
+		$environment->addExtension(new StrikethroughExtension());
+		$environment->addExtension(new AutolinkExtension());
+		$environment->addExtension(new TaskListExtension());
 
 		$this->converter = new MarkdownConverter($environment);
 	}
