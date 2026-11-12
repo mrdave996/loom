@@ -1,0 +1,11 @@
+{
+    "timestamp": "2026-11-12T02:14:17+00:00",
+    "reason": "ip_rate_limited",
+    "ip": "198.51.100.42",
+    "user_agent": "unknown",
+    "fields": {
+        "name": "Test User",
+        "email": "test@example.test",
+        "message": "A genuine test message."
+    }
+}
